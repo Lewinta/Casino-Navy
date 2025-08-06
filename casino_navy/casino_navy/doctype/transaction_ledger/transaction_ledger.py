@@ -30,6 +30,7 @@ class TransactionLedger(Document):
 			"cheque_no": f"Transaction Ledger {self.name}",
 			"reference_type": self.doctype,
 			"reference_name": self.name,
+			"custom_transaction_type": self.transaction_type,
 			"cheque_date": self.date,
 			"multi_currency": 1,
 		})
@@ -66,15 +67,45 @@ class TransactionLedger(Document):
 			fee_amount = abs(flt(self.fee, 6))
 			base_fee_amount = .00
 			
-			row = jv.append("accounts", {
-				"account": bank_details.bank_account,
-				"account_currency": bank_details.account_currency,
-				"exchange_rate": bank_exchange_rate,
-				"debit_in_account_currency": flt(self.amount - self.fee, 6),
-				"debit": flt( (self.amount * bank_exchange_rate)  - (self.fee * fee_exchange_rate), 6),				
-				"bank_account": self.bank,
-				"cost_center": default_cost_center,
-			})
+			if bank_details.custom_collect_reserves and bank_details.custom_reserves_rate:
+				reserve_amount = abs(
+					flt(
+						amount * bank_details.custom_reserves_rate / 100.00,
+						6
+					)
+				)
+				base_reserve_amount = flt(reserve_amount * bank_exchange_rate, 6)
+
+				row = jv.append("accounts", {
+					"account": bank_details.bank_account,
+					"account_currency": bank_details.account_currency,
+					"exchange_rate": bank_exchange_rate,
+					"debit_in_account_currency": flt(amount - fee_amount - reserve_amount, 6),
+					"debit": flt( (self.amount * bank_exchange_rate)  - (self.fee * fee_exchange_rate) - (base_reserve_amount), 6) ,
+					"bank_account": self.bank,
+					"cost_center": default_cost_center,
+				})
+
+				row = jv.append("accounts", {
+					"account": bank_details.custom_reserves_account,
+					"account_currency": bank_details.account_currency,
+					"exchange_rate": bank_exchange_rate,
+					"debit_in_account_currency": reserve_amount,
+					"debit": reserve_amount * bank_exchange_rate,
+					"cost_center": default_cost_center,
+				})
+
+
+			else:
+				row = jv.append("accounts", {
+					"account": bank_details.bank_account,
+					"account_currency": bank_details.account_currency,
+					"exchange_rate": bank_exchange_rate,
+					"debit_in_account_currency": flt(self.amount - self.fee, 6),
+					"debit": flt( (self.amount * bank_exchange_rate)  - (self.fee * fee_exchange_rate), 6),				
+					"bank_account": self.bank,
+					"cost_center": default_cost_center,
+				})
 			
 			if self.fee:
 	
@@ -134,9 +165,9 @@ class TransactionLedger(Document):
 			
 		try: 
 			jv.set_total_debit_credit()
-			for account in jv.accounts:
-				print(f"{account.account}\t\t\t\t{account.debit}({account.debit_in_account_currency})\t\t\t\t{account.credit} ({account.credit_in_account_currency})")
-			print(f"Total Debit: \t\t\t\t{jv.total_debit}\t\t\t\tTotal Credit: {jv.total_credit}")
+			# for account in jv.accounts:
+			# 	print(f"{account.account}|{account.debit or 0.00}|{account.debit_in_account_currency or 0.00}|{account.credit or 0.00}|{account.credit_in_account_currency or 0.00}")
+			# print(f"Total Debit: \t\t\t\t{jv.total_debit}\t\t\t\tTotal Credit: {jv.total_credit}")
 			
 			if jv.difference:
 				exchange_account = frappe.get_cached_value(
@@ -159,6 +190,7 @@ class TransactionLedger(Document):
 			return jv.name
 		except Exception as e:
 			content = f"Journal Entry: {jv.as_json()}\n\n{str(e)}\n\n{frappe.get_traceback()}"
+			print(content)
 			frappe.log_error("Transaction Ledger", content)   
 
 	def cancel_entry(self):
@@ -200,11 +232,15 @@ class TransactionLedger(Document):
 	def get_bank_account_details(self):
 		BA = frappe.qb.DocType("Bank Account")
 		A = frappe.qb.DocType("Account")
+		
 		result = frappe.qb.from_(BA).join(A).on(
 			BA.account == A.name
 		).select(
 			A.name.as_("bank_account"),
-			A.account_currency
+			A.account_currency,
+			BA.custom_collect_reserves,
+			BA.custom_reserves_rate,
+			BA.custom_reserves_account
 		).where(
 			(BA.name == self.bank)
 		).run(as_dict=True)

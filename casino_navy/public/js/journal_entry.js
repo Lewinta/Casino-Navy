@@ -12,3 +12,17 @@ frappe.ui.form.on("Journal Entry", {
         }, __("View"));
     },
 });
+
+frappe.ui.form.on("Journal Entry Account", {
+    account(frm, cdt, cdn){
+        const row = locals[cdt][cdn];
+        if (!row.account) return;
+        const method = "casino_navy.utils.get_bank_account"
+        const args = {"company": frm.doc.company, "account": row.account}
+        frappe.call({method, args, callback: ({message}) => {
+            if (message) {
+                frappe.model.set_value(cdt, cdn, "bank_account", message);
+            }
+        }});
+    }
+});

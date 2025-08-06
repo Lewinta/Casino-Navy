@@ -89,6 +89,7 @@ def add_transaction(data):
             "fee": transaction_data.get("fee"),
             "fee_type": transaction_data.get("fee_type"),
             "charge_type": transaction_data.get("charge_type"),
+            "exchange_rate": transaction_data.get("exchange_rate") or 1.0,
             "transaction_id": transaction_data.get("transaction_id"),
             "third_party_reference": transaction_data.get("third_party_reference"),
             "username": transaction_data.get("username"),

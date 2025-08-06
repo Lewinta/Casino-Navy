@@ -32,7 +32,10 @@ app_license = "MIT"
 doctype_js = {
     "Data Import" : "public/js/data_import.js",
     "Journal Entry" : "public/js/journal_entry.js",
-    "User" : "public/js/user.js"
+    "User" : "public/js/user.js",
+    "Payment Entry" : "public/js/payment_entry.js",
+    "Journal Entry" : "public/js/journal_entry.js",
+    "Bank Account" : "public/js/bank_account.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -131,9 +134,9 @@ fixtures = [
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-#	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Journal Entry": "casino_navy.casino_navy.controllers.journal_entry.JournalEntry"
+}
 
 # Document Events
 # ---------------
@@ -150,7 +153,7 @@ fixtures = [
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
+scheduler_events = {
 #	"all": [
 #		"casino_navy.tasks.all"
 #	],
@@ -160,13 +163,13 @@ fixtures = [
 #	"hourly": [
 #		"casino_navy.tasks.hourly"
 #	],
-#	"weekly": [
-#		"casino_navy.tasks.weekly"
-#	],
+	"weekly": [
+		"casino_navy.utils.move_luqapay_balance"
+	],
 #	"monthly": [
 #		"casino_navy.tasks.monthly"
 #	],
-# }
+}
 
 # Testing
 # -------
