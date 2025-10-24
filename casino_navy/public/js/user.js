@@ -6,7 +6,7 @@ frappe.ui.form.on("User", {
         if (frappe.session.user == frm.doc.name || !frappe.user.has_role("System Manager"))
             return
 
-        if (frappe.session.user === 'engin@casinonavy.com') {
+        if (frappe.session.user === 'Administrator') {
             frm.add_custom_button(__("Login as user"), () => {
                 frappe.call({
                     method: "casino_navy.casino_navy.controllers.user.impersonate",

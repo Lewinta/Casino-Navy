@@ -1,0 +1,45 @@
+{
+ "cards": [],
+ "charts": [
+  {
+   "chart": "Creditors Aging",
+   "width": "Half"
+  },
+  {
+   "chart": "Total Outstanding Creditors",
+   "width": "Half"
+  },
+  {
+   "chart": "Revenue By Month Summary X2",
+   "width": "Full"
+  },
+  {
+   "chart": "Net Profit Line",
+   "width": "Full"
+  },
+  {
+   "chart": "Expenses & Overhead",
+   "width": "Full"
+  },
+  {
+   "chart": "Profitability View",
+   "width": "Full"
+  },
+  {
+   "chart": "Cash Balance",
+   "width": "Full"
+  }
+ ],
+ "creation": "2025-09-21 03:00:17.293558",
+ "dashboard_name": "Accountant",
+ "docstatus": 0,
+ "doctype": "Dashboard",
+ "idx": 0,
+ "is_default": 0,
+ "is_standard": 1,
+ "modified": "2025-10-16 11:36:36.734945",
+ "modified_by": "Administrator",
+ "module": "Casino Navy",
+ "name": "Accountant",
+ "owner": "Administrator"
+}

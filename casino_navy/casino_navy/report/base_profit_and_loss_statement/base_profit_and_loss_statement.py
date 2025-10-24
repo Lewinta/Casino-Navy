@@ -82,7 +82,7 @@ def execute(filters=None):
 
 	return columns, data, None, chart, report_summary
 
-def get_accounts(company, root_type, account_currency):
+def get_accounts(company, root_type):
 	return frappe.db.sql(
 		"""
 		select name, account_number, parent_account, lft, rgt, root_type, report_type, account_name, include_in_gross, account_type, is_group, lft, rgt
@@ -259,7 +259,7 @@ def get_data(
 	total=True,
 ):
 
-	accounts = get_accounts(company, root_type, filters.get("presentation_currency") or None)
+	accounts = get_accounts(company, root_type)
 	if not accounts:
 		return None
 

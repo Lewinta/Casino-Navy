@@ -1,32 +1,38 @@
 {
  "add_total_row": 1,
  "columns": [],
- "creation": "2025-07-29 15:52:18.541372",
+ "creation": "2025-09-28 23:25:53.479987",
  "disable_prepared_report": 1,
- "disabled": 1,
+ "disabled": 0,
  "docstatus": 0,
  "doctype": "Report",
  "filters": [],
  "idx": 0,
  "is_standard": "Yes",
- "modified": "2025-09-17 11:32:31.704627",
+ "modified": "2025-09-28 23:25:53.479987",
  "modified_by": "Administrator",
  "module": "Casino Navy",
- "name": "Trial Balance AX",
+ "name": "Revenue By Month",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "GL Entry",
- "report_name": "Trial Balance AX",
+ "ref_doctype": "Account",
+ "report_name": "Revenue By Month",
  "report_type": "Script Report",
  "roles": [
   {
    "role": "Accounts User"
   },
   {
-   "role": "Accounts Manager"
+   "role": "Auditor"
   },
   {
-   "role": "Auditor"
+   "role": "Sales User"
+  },
+  {
+   "role": "Purchase User"
+  },
+  {
+   "role": "Accounts Manager"
   }
  ]
 }

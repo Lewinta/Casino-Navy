@@ -1,0 +1,13 @@
+{
+ "creation": "2025-09-22 05:02:49.292048",
+ "docstatus": 0,
+ "doctype": "Dashboard Chart Source",
+ "idx": 0,
+ "modified": "2025-09-22 05:02:49.292048",
+ "modified_by": "Administrator",
+ "module": "Casino Navy",
+ "name": "Deposits vs Withdrawals",
+ "owner": "Administrator",
+ "source_name": "Deposits vs Withdrawals",
+ "timeseries": 1
+}

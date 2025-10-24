@@ -1,0 +1,23 @@
+{
+ "creation": "2025-09-22 04:35:17.676226",
+ "docstatus": 0,
+ "doctype": "Number Card",
+ "dynamic_filters_json": "{}",
+ "filters_json": "{\"company\":\"X2 - JMS Investment Group N.V\",\"presentation_currency\":\"TRY\",\"fiscal_year\":\"2025\",\"summary\":1}",
+ "function": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "label": "Net Deposits",
+ "modified": "2025-09-22 04:35:17.676226",
+ "modified_by": "Administrator",
+ "module": "Casino Navy",
+ "name": "Net Deposits",
+ "owner": "Administrator",
+ "report_field": "net_deposit",
+ "report_function": "Sum",
+ "report_name": "Monthly Net Deposits",
+ "show_percentage_stats": 1,
+ "stats_time_interval": "Daily",
+ "type": "Report"
+}

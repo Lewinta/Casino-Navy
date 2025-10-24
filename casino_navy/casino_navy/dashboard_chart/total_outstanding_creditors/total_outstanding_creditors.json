@@ -1,0 +1,39 @@
+{
+ "based_on": "",
+ "chart_name": "Total Outstanding Creditors",
+ "chart_type": "Report",
+ "creation": "2025-10-09 12:07:08.019479",
+ "custom_options": "{\n  \"tooltip\": {\n    \"fieldtype\": \"Currency\",\n    \"options\": \"EUR\",\n    \"always_show_decimals\": false\n  },\n  \"axisOptions\": {\n    \"shortenYAxisNumbers\": 1\n  }\n}",
+ "docstatus": 0,
+ "doctype": "Dashboard Chart",
+ "document_type": "Payment Ledger Entry",
+ "dynamic_filters_json": "{}",
+ "filters_json": "{\"company\":\"X2 - JMS Investment Group N.V\",\"ageing_based_on\":\"Due Date\",\"range1\":30,\"range2\":60,\"range3\":90,\"range4\":120,\"based_on_payment_terms\":0,\"for_revaluation_journals\":0,\"group_by_party_type\":1,\"report_date\":\"2025-10-09\"}",
+ "group_by_type": "Count",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "modified": "2025-10-09 12:10:51.936230",
+ "modified_by": "Administrator",
+ "module": "Casino Navy",
+ "name": "Total Outstanding Creditors",
+ "number_of_groups": 0,
+ "owner": "Administrator",
+ "parent_document_type": "",
+ "report_name": "Creditors Aging",
+ "roles": [],
+ "source": "",
+ "time_interval": "Yearly",
+ "timeseries": 0,
+ "timespan": "Last Year",
+ "type": "Bar",
+ "use_report_chart": 0,
+ "value_based_on": "",
+ "x_field": "supplier_type",
+ "y_axis": [
+  {
+   "color": "#EC864B",
+   "y_field": "outstanding"
+  }
+ ]
+}

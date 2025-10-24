@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:{report}-{company}-{#####}",
+ "creation": "2025-10-20 12:14:36.729743",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "mapper_title",
+  "report",
+  "column_break_opltf",
+  "company",
+  "is_default",
+  "accounts_sb",
+  "items",
+  "remarks_sb",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "mapper_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Mapper Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "report",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Report",
+   "options": "\nCash Balance\nNet Profit Line Summary\nExpenses & Overhead\nProfitability View",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_opltf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "options": "Accountant Mapper Item"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks_sb",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "accounts_sb",
+   "fieldtype": "Section Break",
+   "label": "Sections & Accounts"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-20 12:25:01.840503",
+ "modified_by": "Administrator",
+ "module": "Casino Navy",
+ "name": "Accountant Mapper",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "mapper_title",
+ "track_changes": 1
+}

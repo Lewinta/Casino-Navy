@@ -165,9 +165,10 @@ class TransactionLedger(Document):
 			
 		try: 
 			jv.set_total_debit_credit()
-			# for account in jv.accounts:
-			# 	print(f"{account.account}|{account.debit or 0.00}|{account.debit_in_account_currency or 0.00}|{account.credit or 0.00}|{account.credit_in_account_currency or 0.00}")
-			# print(f"Total Debit: \t\t\t\t{jv.total_debit}\t\t\t\tTotal Credit: {jv.total_credit}")
+			print(f"Account|Debit|Debit in Account Currency|Credit|Credit in Account Currency")
+			for account in jv.accounts:
+				print(f"{account.account}|{account.debit or 0.00}|{account.debit_in_account_currency or 0.00}|{account.credit or 0.00}|{account.credit_in_account_currency or 0.00}")
+			print(f"Total Debit: \t\t\t\t{jv.total_debit}\t\t\t\tTotal Credit: {jv.total_credit}")
 			
 			if jv.difference:
 				exchange_account = frappe.get_cached_value(
