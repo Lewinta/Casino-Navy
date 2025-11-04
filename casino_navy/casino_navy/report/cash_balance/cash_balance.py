@@ -9,25 +9,23 @@ from dateutil.relativedelta import relativedelta
 import frappe
 from frappe import _
 from frappe.utils import cint
+from functools import lru_cache
 from frappe.utils.nestedset import get_descendants_of
-from casino_navy.casino_navy.doctype.accountant_mapper.accountant_mapper import _load_sections_from_mapper, _resolve_sections_leafs
+from casino_navy.casino_navy.doctype.accountant_mapper.accountant_mapper import (
+    _load_sections_from_mapper,
+    _resolve_sections_leafs,
+)
 
 # ---- Configure the GROUP accounts here (exact account names) ----
 REPORT_NAME = "Cash Balance"
-CASH_GROUPS = {
-    _("Bank Accounts"): "12000 - Bank Accounts - X2",
-    _("E-Wallets"): "13000 - E-Wallets - X2",
-    _("Crypto Wallets"): "14000 - Crypto Wallets - X2",
-}
 
 
 def execute(filters=None):
-    
     filters = filters or {}
     company = filters.get("company")
     fiscal_year = filters.get("fiscal_year")
-    summary = cint(filters.get("summary", 1))
     selected_account = (filters.get("account") or "").strip()
+    summary = cint(filters.get("summary"))
 
     _validate_required(company, fiscal_year)
 
@@ -39,16 +37,13 @@ def execute(filters=None):
     # Load sections from Accountant Mapper
     sections = _load_sections_from_mapper(REPORT_NAME, company)
     resolved = _resolve_sections_leafs(company, sections)
-    # resolved = OrderedDict like:
-    #   {"Bank Accounts": {"leafs": set(...), "signs": {"acc": 1, ...}, "formulas": []}, ...}
 
-    # Build a stable list of labels (mapper sort order already applied upstream)
     section_labels = list(resolved.keys())
 
     # Universe of allowed leaf accounts across all sections
     allowed_leafs = sorted({leaf for info in resolved.values() for leaf in info["leafs"]})
     if not allowed_leafs:
-        return _build_columns(periods), [], None, _build_chart_if_summary(periods, currency, summary, {})
+        return _build_columns(periods), [], None, None
 
     # Opening and monthly movements
     day_before = fy_start - timedelta(days=1)
@@ -67,32 +62,11 @@ def execute(filters=None):
             series.append(running)
         account_balances[acc] = series
 
-    # Aggregate per section (apply per-account sign if future mappers use it)
-    group_series = {}
-    for label in section_labels:
-        info = resolved[label]
-        sums = [0.0] * n
-        for acc in sorted(info["leafs"]):
-            acc_series = account_balances.get(acc, [0.0] * n)
-            sign = info["signs"].get(acc, 1)
-            for i in range(n):
-                sums[i] += sign * acc_series[i]
-        group_series[label] = sums
-
     columns = _build_columns(periods)
     rows = []
 
-    if summary:
-        # SUMMARY MODE: one row per section from the mapper
-        for label in section_labels:
-            rows.append(_make_row(label, currency, periods, group_series.get(label, [0.0]*n)))
-        chart = _build_chart_if_summary(periods, currency, summary, group_series, section_labels)
-        return columns, rows, None, chart
-
-    # DETAILED MODE
+    # Drill-down view for a selected account/group (kept as-is; no subtotals)
     if selected_account:
-        # Show descendants of the selected account, limited to allowed_leafs
-        # (this preserves your previous drill-down behavior)
         target_leafs = _safe_intersection(
             _resolve_group_leaf_accounts(company, selected_account),
             allowed_leafs,
@@ -101,32 +75,102 @@ def execute(filters=None):
             target_leafs = [selected_account]
 
         if target_leafs:
-            rows.append({"account": selected_account, "currency": currency, "bold": 1})
-            subtotal = [0.0] * n
+            header_series = [0.0] * n
             for acc in sorted(target_leafs):
                 series = account_balances.get(acc, [0.0] * n)
-                rows.append(_make_row(acc, currency, periods, series))
                 for i in range(n):
-                    subtotal[i] += series[i]
-            if _is_group_account(selected_account):
-                rows.append(_make_row(_("{0} - Subtotal").format(selected_account), currency, periods, subtotal))
-            return columns, rows, None, None
-        # else fall through to full detailed view
+                    header_series[i] += series[i]
 
-    # Full detailed view grouped by mapper sections
+            rows.append(_make_row_payload(
+                account="",  # keep header non-clickable
+                display_label=selected_account,
+                periods=periods,
+                values=header_series,
+                currency=currency,
+                year_start=fy_start,
+                year_end=fy_end,
+                bold=1
+            ))
+
+            for acc in sorted(target_leafs):
+                series = account_balances.get(acc, [0.0] * n)
+                rows.append(_make_row_payload(
+                    account=acc,
+                    display_label=_get_account_meta(acc)["account_name"] or acc,
+                    periods=periods,
+                    values=series,
+                    currency=currency,
+                    year_start=fy_start,
+                    year_end=fy_end,
+                    parent_account=_get_account_meta(acc)["parent_account"],
+                    account_type=_get_account_meta(acc)["account_type"],
+                    bold=0
+                ))
+
+            return columns, rows, None, None
+        # else fall through
+
+    # SUMMARY MODE → groups only + CHART (rows clickable to GL via group account)
+    if summary:
+        group_series = {}
+        for label in section_labels:
+            info = resolved[label]
+
+            # find a real group account to link
+            group_account = _resolve_group_account_for_section(
+                company, label, sorted(info["leafs"])
+            )
+            meta = _get_account_meta(group_account) if group_account else {"account_name": None, "parent_account": None, "account_type": None}
+
+            # roll-up series
+            header_series = [0.0] * n
+            for acc in sorted(info["leafs"]):
+                sign = info["signs"].get(acc, 1)
+                series = account_balances.get(acc, [0.0] * n)
+                for i in range(n):
+                    header_series[i] += sign * series[i]
+
+            group_series[label] = header_series
+
+            # IMPORTANT: set account=group_account to make it clickable;
+            # keep display_label = mapper label so UI shows your section name
+            rows.append(_make_row_payload(
+                account=group_account or "",          # clickable if resolved
+                display_label=label,                  # show your section label
+                periods=periods,
+                values=header_series,
+                currency=currency,
+                year_start=fy_start,
+                year_end=fy_end,
+                parent_account=meta.get("parent_account"),
+                account_type=meta.get("account_type"),
+                bold=1
+            ))
+
+        chart = _build_summary_chart(periods, currency, group_series, section_labels)
+        return columns, rows, None, chart
+
+    # DETAIL MODE → leaf accounts only, no chart
     for label in section_labels:
         info = resolved[label]
-        rows.append({"account": f"{label}", "currency": currency, "bold": 1})
-        section_subtotal = [0.0] * n
         for acc in sorted(info["leafs"]):
-            series = account_balances.get(acc, [0.0] * n)
+            meta = _get_account_meta(acc)
             sign = info["signs"].get(acc, 1)
+            series = account_balances.get(acc, [0.0] * n)
             signed = [sign * v for v in series]
-            rows.append(_make_row(acc, currency, periods, signed))
-            for i in range(n):
-                section_subtotal[i] += signed[i]
-        rows.append(_make_row(_("{0} - Subtotal").format(label), currency, periods, section_subtotal))
 
+            rows.append(_make_row_payload(
+                account=acc,                                # real account → clickable
+                display_label=meta["account_name"] or acc,
+                periods=periods,
+                values=signed,
+                currency=currency,
+                year_start=fy_start,
+                year_end=fy_end,
+                parent_account=meta["parent_account"],
+                account_type=meta["account_type"],
+                bold=0
+            ))
     return columns, rows, None, None
 
 
@@ -170,7 +214,19 @@ def _build_month_periods(start_date: date, end_date: date):
 
 
 def _build_columns(periods):
-    cols = [{"label": _("Account"), "fieldname": "account", "fieldtype": "Data", "width": 300}]
+    cols = [
+        # clickable like financial statements
+        {"label": _("Account"), "fieldname": "account", "fieldtype": "Link", "options": "Account", "width": 300, "align": "left"},
+
+        # hidden helpers used by formatter / routing
+        {"label": _("Account Name"), "fieldname": "account_name", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Parent Account"), "fieldname": "parent_account", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Account Type"), "fieldname": "account_type", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Year Start"), "fieldname": "year_start_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("Year End"), "fieldname": "year_end_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("From Date"), "fieldname": "from_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("To Date"), "fieldname": "to_date", "fieldtype": "Date", "hidden": 1},
+    ]
     for p in periods:
         cols.append({
             "label": _(p["label"]),
@@ -220,6 +276,7 @@ def _get_opening_balances(company: str, as_of_date: date, accounts: list[str]):
           AND gle.is_cancelled = 0
           AND gle.posting_date <= %s
           AND gle.account IN ({placeholders})
+          AND gle.posting_date >= '2025-06-01'
         GROUP BY gle.account
     """
     params = [company, as_of_date] + accounts
@@ -241,6 +298,7 @@ def _get_monthly_movements(company: str, from_date: date, to_date: date, account
           AND gle.is_cancelled = 0
           AND gle.posting_date BETWEEN %s AND %s
           AND gle.account IN ({placeholders})
+          AND gle.posting_date >= '2025-06-01'
         GROUP BY gle.account, period_start
     """
     params = [company, from_date, to_date] + accounts
@@ -253,24 +311,36 @@ def _get_monthly_movements(company: str, from_date: date, to_date: date, account
     return out
 
 
-def _make_row(label: str, currency: str, periods, values: list[float]):
-    row = {"account": label, "currency": currency}
+def _make_row_payload(
+    account: str,                 # real Account name, or ""/None for group rows
+    display_label: str,           # what to show in the Account column
+    periods, values: list[float],
+    currency: str,
+    year_start, year_end,
+    parent_account: str | None = None,
+    account_type: str | None = None,
+    bold: int = 0,
+):
+    row = {
+        "account": account or "",                 # leave empty for non-real groups
+        "account_name": display_label,
+        "parent_account": parent_account or "",
+        "account_type": account_type or "",
+        "year_start_date": year_start,
+        "year_end_date": year_end,
+        "from_date": year_start,                  # let GL pick either pair
+        "to_date": year_end,
+        "currency": currency,
+    }
     total = 0.0
     for i, p in enumerate(periods):
-        val = float(values[i] if i < len(values) else 0)
-        row[p["key"]] = val
-        total += val
+        v = float(values[i] if i < len(values) else 0)
+        row[p["key"]] = v
+        total += v
     row["total"] = total
+    if bold:
+        row["bold"] = 1
     return row
-
-
-def _sum_series(acc_list, account_balances, n):
-    out = [0.0] * n
-    for acc in acc_list or []:
-        series = account_balances.get(acc, [0.0] * n)
-        for i in range(n):
-            out[i] += series[i]
-    return out
 
 
 def _safe_intersection(a_list, b_list):
@@ -279,18 +349,99 @@ def _safe_intersection(a_list, b_list):
     return sorted(a & b)
 
 
-def _build_chart_if_summary(periods, currency: str, summary: int, group_series: dict, section_labels: list[str]):
-    """Only build chart when summary is checked."""
-    if not summary:
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": account_name, "parent_account": None, "account_type": None}
+    row = frappe.db.get_value(
+        "Account", account_name, ["account_name", "parent_account", "account_type"], as_dict=True
+    ) or {}
+    return {
+        "account_name": row.get("account_name") or account_name,
+        "parent_account": row.get("parent_account"),
+        "account_type": row.get("account_type"),
+    }
+
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def _get_account_node(account_name: str):
+    """Cached minimal info for ancestor traversal."""
+    if not account_name:
+        return {"parent_account": None, "is_group": 0, "company": None}
+    row = frappe.db.get_value(
+        "Account",
+        account_name,
+        ["parent_account", "is_group", "company"],
+        as_dict=True,
+    ) or {}
+    # normalize
+    row.setdefault("parent_account", None)
+    row["is_group"] = cint(row.get("is_group") or 0)
+    return row
+
+def _ancestor_chain(account_name: str):
+    """Return list [parent, grandparent, ..., top] for an account."""
+    chain = []
+    cur = account_name
+    seen = set([cur])
+    while True:
+        node = _get_account_node(cur)
+        parent = node.get("parent_account")
+        if not parent or parent in seen:
+            break
+        chain.append(parent)
+        seen.add(parent)
+        cur = parent
+    return chain
+
+def _resolve_group_account_for_section(company: str, section_label: str, leafs: list[str]) -> str | None:
+    """
+    Prefer: if section label is an existing Account in this company → use it.
+    Else: pick the deepest common ancestor (group account) across all leafs.
+    """
+    # 1) Direct match on label
+    if frappe.db.exists("Account", {"name": section_label, "company": company}):
+        return section_label
+
+    if not leafs:
         return None
+
+    # 2) LCA over leafs (by ancestor set intersection, choosing deepest)
+    first = leafs[0]
+    # build ordered list of ancestors for first leaf (nearest first)
+    ref_chain = _ancestor_chain(first)
+    if not ref_chain:
+        return None
+
+    common = set(ref_chain)
+    for acc in leafs[1:]:
+        common &= set(_ancestor_chain(acc))
+        if not common:
+            return None
+
+    # choose the deepest (closest to leaves) that is a group account in this company
+    for candidate in ref_chain:
+        if candidate in common:
+            node = _get_account_node(candidate)
+            if node.get("company") == company and cint(node.get("is_group")) == 1:
+                return candidate
+
+    return None
+
+
+def _build_summary_chart(periods, currency: str, group_series: dict, section_labels: list[str]):
+    """Build a bar chart using the rolled-up series for each group; only used in Summary mode."""
     labels = [p["label"] for p in periods]
-    datasets = [{"name": label, "values": group_series.get(label, [])} for label in section_labels]
+    datasets = [{"name": label, "values": group_series.get(label, [0.0] * len(labels))} for label in section_labels]
+    colors = ["#B77466", "#FFE1AF", "#E2B59A", "#957C62", "#F4F4F4", "#34495E"]
     return {
         "type": "bar",
         "data": {"labels": labels, "datasets": datasets},
+        "colors": colors[:len(datasets)],
         "custom_options": json.dumps({
             "tooltip": {"fieldtype": "Currency", "options": currency, "always_show_decimals": False},
-            "axisOptions": {"shortenYAxisNumbers": 1},
+            "axisOptions": {"shortenYAxisNumbers": 1}
         }),
         "fieldtype": "Currency",
         "options": currency,

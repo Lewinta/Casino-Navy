@@ -1,15 +1,14 @@
 # Copyright (c) 2025, Lewin Villar and contributors
 # For license information, please see license.txt
 
-import calendar
 import json
-from datetime import date
-from dateutil.relativedelta import relativedelta
-
 import frappe
+import calendar
 from frappe import _
+from datetime import date
+from functools import lru_cache
+from dateutil.relativedelta import relativedelta
 from frappe.utils.nestedset import get_descendants_of
-
 
 def execute(filters=None):
 	if not filters:
@@ -49,7 +48,18 @@ def execute(filters=None):
 
 		row_total = sum(month_vals)
 		if row_total != 0:
-			row = {"account": account, "currency": currency}
+			meta = _get_account_meta(account)
+			row = {
+				"account": account,                           # 👈 clickable (group account)
+				"account_name": meta["account_name"] or account,
+				"parent_account": meta["parent_account"] or "",
+				"account_type": meta["account_type"] or "",
+				"year_start_date": fy_start,                  # used by formatter->GL
+				"year_end_date": fy_end,
+				"from_date": fy_start,                        # mirror for compatibility
+				"to_date": fy_end,
+				"currency": currency,
+			}
 			for i, p in enumerate(periods):
 				row[p["key"]] = month_vals[i]
 			row["total"] = row_total
@@ -75,7 +85,18 @@ def execute(filters=None):
 			if row_total == 0:
 				continue
 
-			row = {"account": acc, "currency": currency}
+			meta = _get_account_meta(acc)
+			row = {
+				"account": acc,                                   # 👈 clickable (leaf)
+				"account_name": meta["account_name"] or acc,
+				"parent_account": meta["parent_account"] or "",
+				"account_type": meta["account_type"] or "",
+				"year_start_date": fy_start,
+				"year_end_date": fy_end,
+				"from_date": fy_start,
+				"to_date": fy_end,
+				"currency": currency,
+			}
 			for i, p in enumerate(periods):
 				row[p["key"]] = month_vals[i]
 			row["total"] = row_total
@@ -91,6 +112,22 @@ def execute(filters=None):
 # --------------------------
 # Helpers
 # --------------------------
+
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": account_name, "parent_account": None, "account_type": None}
+    row = frappe.db.get_value(
+        "Account",
+        account_name,
+        ["account_name", "parent_account", "account_type"],
+        as_dict=True,
+    ) or {}
+    return {
+        "account_name": row.get("account_name") or account_name,
+        "parent_account": row.get("parent_account"),
+        "account_type": row.get("account_type"),
+    }
 
 def _as_bool(v):
 	"""Normalize truthy values coming from report filters."""
@@ -229,35 +266,42 @@ def _build_month_periods(start_date: date, end_date: date):
 
 
 def _build_columns(periods):
-	cols = [
-		{
-			"label": _("Account"),
-			"fieldname": "account",
-			"fieldtype": "Link",
-			"options": "Account",
-			"width": 320,
-		}
-	]
+    cols = [
+        {
+            "label": _("Account"),
+            "fieldname": "account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "width": 320,
+            "align": "left",   # ensure left-aligned
+        },
+        # hidden helpers used by the formatter / GL routing
+        {"label": _("Account Name"), "fieldname": "account_name", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Parent Account"), "fieldname": "parent_account", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Account Type"), "fieldname": "account_type", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Year Start"), "fieldname": "year_start_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("Year End"), "fieldname": "year_end_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("From Date"), "fieldname": "from_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("To Date"), "fieldname": "to_date", "fieldtype": "Date", "hidden": 1},
+    ]
 
-	# Month columns
-	for p in periods:
-		cols.append({
-			"label": _(p["label"]),
-			"fieldname": p["key"],
-			"fieldtype": "Currency",
-			"options": "currency",  # uses row["currency"]
-			"width": 110,
-		})
+    for p in periods:
+        cols.append({
+            "label": _(p["label"]),
+            "fieldname": p["key"],
+            "fieldtype": "Currency",
+            "options": "currency",
+            "width": 110,
+        })
 
-	# Total
-	cols.append({
-		"label": _("Total"),
-		"fieldname": "total",
-		"fieldtype": "Currency",
-		"options": "currency",  # uses row["currency"]
-		"width": 130,
-	})
-	return cols
+    cols.append({
+        "label": _("Total"),
+        "fieldname": "total",
+        "fieldtype": "Currency",
+        "options": "currency",
+        "width": 130,
+    })
+    return cols
 
 
 def _resolve_accounts(company: str, chosen_account: str):
@@ -302,6 +346,7 @@ def _get_monthly_amounts(company: str, from_date: date, to_date: date, accounts)
 			AND gle.is_cancelled = 0
 			AND gle.posting_date BETWEEN %s AND %s
 			AND gle.account IN ({placeholders})
+			AND gle.posting_date >= '2025-06-01'
 		GROUP BY gle.account, period_start
 	"""
 	params = [company, from_date, to_date] + list(accounts)

@@ -2,36 +2,38 @@
 // For license information, please see license.txt
 /* eslint-disable */
 
-// Copyright (c) 2025, Lewin Villar and contributors
-/* eslint-disable */
-
-frappe.query_reports["Net Profit Line Summary"] = {
-  filters: [
-    {
-      fieldname: "company",
-      label: __("Company"),
-      fieldtype: "Link",
-      options: "Company",
-      default: frappe.defaults.get_user_default("Company"),
-      reqd: 1,
-      onchange() {
-        frappe.query_report?.refresh();
+frappe.require("assets/erpnext/js/financial_statements.js", function () {
+  frappe.query_reports["Net Profit Line Summary"] = {
+    filters: [
+      {
+        fieldname: "company",
+        label: __("Company"),
+        fieldtype: "Link",
+        options: "Company",
+        default: frappe.defaults.get_user_default("Company"),
+        reqd: 1,
+        onchange() {
+          frappe.query_report?.refresh();
+        },
       },
-    },
-    {
-      fieldname: "fiscal_year",
-      label: __("Fiscal Year"),
-      fieldtype: "Link",
-      options: "Fiscal Year",
-      default: "2025",
-      reqd: 1,
-    },
-  ],
-
-  onload(report) {
-    // nothing else required here
-  },
-};
+      {
+        fieldname: "fiscal_year",
+        label: __("Fiscal Year"),
+        fieldtype: "Link",
+        options: "Fiscal Year",
+        default: "2025",
+        reqd: 1,
+      },
+    ],
+    // make first column clickable like FS
+    formatter: erpnext.financial_statements.formatter,
+    tree: false,
+    name_field: "account",
+    parent_field: "parent_account",
+    initial_depth: 1,
+    onload(report) { /* nothing else needed */ },
+  };
+});
 
 // --- FINAL, SCOPED PATCH: ensure the report chart uses the currency sent by the server (EUR) ---
 frappe.ready(() => {

@@ -1,6 +1,7 @@
 import frappe
 from frappe import qb
 from frappe.utils import today
+from functools import lru_cache
 from frappe.query_builder import Criterion
 from erpnext.accounts.utils import get_balance_on
 from frappe.utils.nestedset import get_descendants_of
@@ -53,6 +54,50 @@ def get_bank_account(company, mop=None, account=None):
 
     return data[0].name if data else None
 
+
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": "", "parent_account": "", "account_type": ""}
+    row = frappe.db.get_value(
+        "Account", account_name, ["account_name", "parent_account", "account_type"], as_dict=True
+    ) or {}
+    return {
+        "account_name": (row.get("account_name") or "").strip() or account_name,
+        "parent_account": row.get("parent_account") or "",
+        "account_type": row.get("account_type") or "",
+    }
+
+def _make_row_payload(
+    account: str,              # real Account name or "" for non-clickable
+    display_label: str,        # text shown in Account column
+    periods, values: list[float],
+    currency: str,
+    year_start, year_end,
+    parent_account: str = "",
+    account_type: str = "",
+    bold: int = 0,
+):
+    row = {
+        "account": account,                     # clickable if non-empty
+        "account_name": display_label,
+        "parent_account": parent_account,
+        "account_type": account_type,
+        "year_start_date": year_start,
+        "year_end_date": year_end,
+        "from_date": year_start,
+        "to_date": year_end,
+        "currency": currency,
+    }
+    total = 0.0
+    for i, p in enumerate(periods):
+        v = float(values[i] if i < len(values) else 0)
+        row[p["key"]] = v
+        total += v
+    row["total"] = total
+    if bold:
+        row["bold"] = 1
+    return row
 
 def move_luqapay_balance():
     # This function is intended to move 

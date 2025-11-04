@@ -2,14 +2,14 @@
 # Copyright (c) 2025
 # For license information, please see license.txt
 
-import calendar
 import json
+import frappe
+import calendar
+from frappe import _
 from datetime import date
 from dateutil.relativedelta import relativedelta
-
-import frappe
-from frappe import _
 from frappe.utils.nestedset import get_descendants_of
+
 
 # ---- Configure the key accounts here (exact account names) ----
 # Revenue is a GROUP account; we will roll up all its leaf children
@@ -72,9 +72,48 @@ def execute(filters=None):
 
     # Rows (Revenue, Cost of Sales, Net Profit)
     rows = []
-    rows.append(_make_row(_("Revenue"), company_currency, periods, rev_month))
-    rows.append(_make_row(_("Cost of Sales"), company_currency, periods, cost_month))
-    rows.append(_make_row(_("Net Profit"), company_currency, periods, net_month))
+
+    # Revenue → clickable to REVENUE_GROUP
+    rev_meta = _get_account_meta(REVENUE_GROUP)
+    rows.append(_make_row_payload(
+        account=REVENUE_GROUP,
+        display_label=_("Revenue"),
+        periods=periods,
+        values=rev_month,
+        currency=company_currency,
+        year_start=fy_start,
+        year_end=fy_end,
+        parent_account=rev_meta["parent_account"],
+        account_type=rev_meta["account_type"],
+        bold=1,
+    ))
+
+    # Cost of Sales → clickable to COST_GROUP
+    cost_meta = _get_account_meta(COST_GROUP)
+    rows.append(_make_row_payload(
+        account=COST_GROUP,
+        display_label=_("Cost of Sales"),
+        periods=periods,
+        values=cost_month,
+        currency=company_currency,
+        year_start=fy_start,
+        year_end=fy_end,
+        parent_account=cost_meta["parent_account"],
+        account_type=cost_meta["account_type"],
+        bold=1,
+    ))
+
+    # Net Profit → derived, non-clickable
+    rows.append(_make_row_payload(
+        account="",
+        display_label=_("Net Profit"),
+        periods=periods,
+        values=net_month,
+        currency=company_currency,
+        year_start=fy_start,
+        year_end=fy_end,
+        bold=1,
+    ))
 
     # Columns
     columns = _build_columns(periods)
@@ -88,6 +127,52 @@ def execute(filters=None):
 # --------------------------
 # Helpers
 # --------------------------
+
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": "", "parent_account": "", "account_type": ""}
+    row = frappe.db.get_value(
+        "Account", account_name, ["account_name", "parent_account", "account_type"], as_dict=True
+    ) or {}
+    return {
+        "account_name": (row.get("account_name") or "").strip() or account_name,
+        "parent_account": row.get("parent_account") or "",
+        "account_type": row.get("account_type") or "",
+    }
+
+def _make_row_payload(
+    account: str,              # real Account name or "" for non-clickable
+    display_label: str,        # text shown in Account column
+    periods, values: list[float],
+    currency: str,
+    year_start, year_end,
+    parent_account: str = "",
+    account_type: str = "",
+    bold: int = 0,
+):
+    row = {
+        "account": account,                     # clickable if non-empty
+        "account_name": display_label,
+        "parent_account": parent_account,
+        "account_type": account_type,
+        "year_start_date": year_start,
+        "year_end_date": year_end,
+        "from_date": year_start,
+        "to_date": year_end,
+        "currency": currency,
+    }
+    total = 0.0
+    for i, p in enumerate(periods):
+        v = float(values[i] if i < len(values) else 0)
+        row[p["key"]] = v
+        total += v
+    row["total"] = total
+    if bold:
+        row["bold"] = 1
+    return row
 
 def _validate_required(company, fiscal_year):
     missing = [n for n, v in [("company", company), ("fiscal_year", fiscal_year)] if not v]
@@ -127,15 +212,23 @@ def _build_month_periods(start_date: date, end_date: date):
         cur = (cur + relativedelta(months=1)).replace(day=1)
     return periods
 
-
 def _build_columns(periods):
     cols = [
         {
             "label": _("Account"),
             "fieldname": "account",
-            "fieldtype": "Data",
+            "fieldtype": "Link",
+            "options": "Account",
             "width": 260,
-        }
+            "align": "left",
+        },
+        {"label": _("Account Name"), "fieldname": "account_name", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Parent Account"), "fieldname": "parent_account", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Account Type"), "fieldname": "account_type", "fieldtype": "Data", "hidden": 1},
+        {"label": _("Year Start"), "fieldname": "year_start_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("Year End"), "fieldname": "year_end_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("From Date"), "fieldname": "from_date", "fieldtype": "Date", "hidden": 1},
+        {"label": _("To Date"), "fieldname": "to_date", "fieldtype": "Date", "hidden": 1},
     ]
     for p in periods:
         cols.append({
@@ -209,6 +302,7 @@ def _get_monthly_debit_credit(company: str, from_date: date, to_date: date, acco
             AND gle.is_cancelled = 0
             AND gle.posting_date BETWEEN %s AND %s
             AND gle.account IN ({placeholders})
+            AND gle.posting_date >= '2025-06-01'
         GROUP BY gle.account, period_start
     """
     params = [company, from_date, to_date] + accounts

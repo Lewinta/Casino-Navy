@@ -55,25 +55,36 @@ def execute(filters=None):
     # amounts_by_account = {acc: {'YYYY-MM': amount}, ...}
     amounts_by_account = _get_monthly_amounts(company, fy_start, fy_end, all_leafs)
 
-    # Build data rows (one per section label from the mapper)
+    # Build data rows (one per section label from the mapper) — CLICKABLE buckets
     data = []
     for label in section_labels:
         info = resolved[label]
         month_vals = [0.0] * n
 
         for acc in sorted(info["leafs"]):
-            sign = info["signs"].get(acc, 1)  # default +1; set -1 in mapper only if you need to invert
+            sign = info["signs"].get(acc, 1)
             for k, amt in (amounts_by_account.get(acc) or {}).items():
                 i = period_index_by_key.get(k)
                 if i is None:
                     continue
                 month_vals[i] += sign * amt
 
-        row = {"account": label, "currency": currency}
-        for i, p in enumerate(periods):
-            row[p["key"]] = month_vals[i]
-        row["total"] = sum(month_vals)
-        data.append(row)
+        # Try to find a real group account to link this bucket to
+        group_account = _resolve_group_account_for_section(company, label, sorted(info["leafs"]))
+        meta = _get_account_meta(group_account) if group_account else {"account_name": "", "parent_account": "", "account_type": ""}
+
+        data.append(_make_row_payload(
+            account=group_account or "",     # clickable if resolved, else plain text
+            display_label=label,             # keep showing the mapper label
+            periods=periods,
+            values=month_vals,
+            currency=currency,
+            year_start=fy_start,
+            year_end=fy_end,
+            parent_account=meta.get("parent_account", ""),
+            account_type=meta.get("account_type", ""),
+            bold=1
+        ))
 
     columns = _build_columns(periods)
     chart = _build_chart(data, periods, currency)
@@ -81,6 +92,98 @@ def execute(filters=None):
 
 
 # -------------------------- helpers --------------------------
+
+from functools import lru_cache
+from frappe import _  # already imported above
+
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": "", "parent_account": "", "account_type": ""}
+    row = frappe.db.get_value(
+        "Account", account_name, ["account_name", "parent_account", "account_type"], as_dict=True
+    ) or {}
+    return {
+        "account_name": (row.get("account_name") or "").strip() or account_name,
+        "parent_account": row.get("parent_account") or "",
+        "account_type": row.get("account_type") or "",
+    }
+
+@lru_cache(maxsize=None)
+def _get_account_node(account_name: str):
+    if not account_name:
+        return {"parent_account": None, "is_group": 0, "company": None}
+    row = frappe.db.get_value(
+        "Account", account_name, ["parent_account", "is_group", "company"], as_dict=True
+    ) or {}
+    row.setdefault("parent_account", None)
+    row["is_group"] = 1 if row.get("is_group") else 0
+    return row
+
+def _ancestor_chain(account_name: str):
+    chain = []
+    cur = account_name
+    seen = {cur}
+    while cur:
+        node = _get_account_node(cur)
+        parent = node.get("parent_account")
+        if not parent or parent in seen:
+            break
+        chain.append(parent)   # nearest first
+        seen.add(parent)
+        cur = parent
+    return chain
+
+def _resolve_group_account_for_section(company: str, section_label: str, leafs: list[str]) -> str | None:
+    # 1) If mapper label is an existing Account in this company → use it
+    if frappe.db.exists("Account", {"name": section_label, "company": company}):
+        return section_label
+    if not leafs:
+        return None
+    # 2) deepest common ancestor of all leafs
+    ref_chain = _ancestor_chain(leafs[0])
+    common = set(ref_chain)
+    for acc in leafs[1:]:
+        common &= set(_ancestor_chain(acc))
+        if not common:
+            return None
+    for candidate in ref_chain:  # nearest first
+        if candidate in common:
+            node = _get_account_node(candidate)
+            if node.get("company") == company and node.get("is_group") == 1:
+                return candidate
+    return None
+
+def _make_row_payload(
+    account: str,              # real Account name or "" if non-clickable
+    display_label: str,        # text shown in Account column
+    periods, values: list[float],
+    currency: str,
+    year_start, year_end,
+    parent_account: str = "",
+    account_type: str = "",
+    bold: int = 0,
+):
+    row = {
+        "account": account,                     # clickable if non-empty
+        "account_name": display_label,
+        "parent_account": parent_account,
+        "account_type": account_type,
+        "year_start_date": year_start,
+        "year_end_date": year_end,
+        "from_date": year_start,
+        "to_date": year_end,
+        "currency": currency,
+    }
+    total = 0.0
+    for i, p in enumerate(periods):
+        v = float(values[i] if i < len(values) else 0)
+        row[p["key"]] = v
+        total += v
+    row["total"] = total
+    if bold:
+        row["bold"] = 1
+    return row
 
 def _get_fiscal_year_dates(fy_name: str):
     doc = frappe.db.get_value(
@@ -110,9 +213,19 @@ def _build_columns(periods):
     cols = [{
         "label": "Account / Bucket",
         "fieldname": "account",
-        "fieldtype": "Data",
+        "fieldtype": "Link",
+        "options": "Account",
         "width": 300,
-    }]
+        "align": "left",
+    },
+    {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data", "hidden": 1},
+    {"label": "Parent Account", "fieldname": "parent_account", "fieldtype": "Data", "hidden": 1},
+    {"label": "Account Type", "fieldname": "account_type", "fieldtype": "Data", "hidden": 1},
+    {"label": "Year Start", "fieldname": "year_start_date", "fieldtype": "Date", "hidden": 1},
+    {"label": "Year End", "fieldname": "year_end_date", "fieldtype": "Date", "hidden": 1},
+    {"label": "From Date", "fieldname": "from_date", "fieldtype": "Date", "hidden": 1},
+    {"label": "To Date", "fieldname": "to_date", "fieldtype": "Date", "hidden": 1},
+    ]
     for p in periods:
         cols.append({
             "label": p["label"],
@@ -130,7 +243,6 @@ def _build_columns(periods):
     })
     return cols
 
-
 def _get_monthly_amounts(company, from_date, to_date, accounts):
     if not accounts:
         return {}
@@ -146,6 +258,7 @@ def _get_monthly_amounts(company, from_date, to_date, accounts):
             AND gle.is_cancelled = 0
             AND gle.posting_date BETWEEN %s AND %s
             AND gle.account IN ({placeholders})
+            AND gle.posting_date >= '2025-06-01'
         GROUP BY gle.account, period_start
     """
     params = [company, from_date, to_date] + accounts

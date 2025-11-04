@@ -89,14 +89,29 @@ def execute(filters=None):
             out[i] = _evaluate_formulas(period_ctx, formulas)
         section_series[label] = out
 
-    # Build rows
+    # Build rows — clickable when backed by a real group account (formula-only rows stay plain)
     data = []
     for label in section_labels:
-        row = _blank_row(label, periods, currency)
-        for i, p in enumerate(periods):
-            row[p["key"]] = section_series[label][i]
-        row["total"] = sum(row[p["key"]] for p in periods)
-        data.append(row)
+        values = section_series[label]
+
+        info = resolved[label]
+        leafs = sorted(info.get("leafs") or [])
+        # if section has no leafs and only formulas, we keep it non-clickable
+        link_account = _resolve_group_account_for_section(company, label, leafs) if leafs else None
+        meta = _get_account_meta(link_account) if link_account else {"parent_account": "", "account_type": ""}
+
+        data.append(_make_row_payload(
+            account=link_account or "",          # clickable if resolved
+            display_label=label,                 # keep mapper label as display text
+            periods=periods,
+            values=values,
+            currency=currency,
+            year_start=fy_start,
+            year_end=fy_end,
+            parent_account=meta.get("parent_account", ""),
+            account_type=meta.get("account_type", ""),
+            bold=1
+        ))
 
     columns = _build_columns(periods)
 
@@ -112,6 +127,96 @@ def execute(filters=None):
 
 
 # -------------------------- helpers --------------------------
+
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def _get_account_meta(account_name: str):
+    if not account_name:
+        return {"account_name": "", "parent_account": "", "account_type": ""}
+    row = frappe.db.get_value(
+        "Account", account_name, ["account_name", "parent_account", "account_type"], as_dict=True
+    ) or {}
+    return {
+        "account_name": (row.get("account_name") or "").strip() or account_name,
+        "parent_account": row.get("parent_account") or "",
+        "account_type": row.get("account_type") or "",
+    }
+
+@lru_cache(maxsize=None)
+def _get_account_node(account_name: str):
+    if not account_name:
+        return {"parent_account": None, "is_group": 0, "company": None}
+    row = frappe.db.get_value(
+        "Account", account_name, ["parent_account", "is_group", "company"], as_dict=True
+    ) or {}
+    row.setdefault("parent_account", None)
+    row["is_group"] = 1 if row.get("is_group") else 0
+    return row
+
+def _ancestor_chain(account_name: str):
+    chain = []
+    cur = account_name
+    seen = {cur}
+    while cur:
+        node = _get_account_node(cur)
+        parent = node.get("parent_account")
+        if not parent or parent in seen:
+            break
+        chain.append(parent)   # nearest first
+        seen.add(parent)
+        cur = parent
+    return chain
+
+def _resolve_group_account_for_section(company: str, section_label: str, leafs: list[str]) -> str | None:
+    # direct label match to an Account in this company
+    if frappe.db.exists("Account", {"name": section_label, "company": company}):
+        return section_label
+    if not leafs:
+        return None
+    # deepest common ancestor of all leafs
+    ref_chain = _ancestor_chain(leafs[0])
+    common = set(ref_chain)
+    for acc in leafs[1:]:
+        common &= set(_ancestor_chain(acc))
+        if not common:
+            return None
+    for candidate in ref_chain:        # nearest first
+        node = _get_account_node(candidate)
+        if candidate in common and node.get("company") == company and node.get("is_group") == 1:
+            return candidate
+    return None
+
+def _make_row_payload(
+    account: str,              # real Account (clickable) or "" (non-clickable)
+    display_label: str,        # shows in Account column
+    periods, values: list[float],
+    currency: str,
+    year_start, year_end,
+    parent_account: str = "",
+    account_type: str = "",
+    bold: int = 1,
+):
+    row = {
+        "account": account,
+        "account_name": display_label,
+        "parent_account": parent_account,
+        "account_type": account_type,
+        "year_start_date": year_start,
+        "year_end_date": year_end,
+        "from_date": year_start,
+        "to_date": year_end,
+        "currency": currency,
+    }
+    total = 0.0
+    for i, p in enumerate(periods):
+        v = float(values[i] if i < len(values) else 0)
+        row[p["key"]] = v
+        total += v
+    row["total"] = total
+    if bold:
+        row["bold"] = 1
+    return row
 
 def _get_fiscal_year_dates(fy_name: str):
     doc = frappe.db.get_value(
@@ -139,12 +244,23 @@ def _build_month_periods(start_date: date, end_date: date):
 
 
 def _build_columns(periods):
-    cols = [{
-        "label": "Bucket",
-        "fieldname": "account",
-        "fieldtype": "Data",
-        "width": 260,
-    }]
+    cols = [
+        {
+            "label": "Bucket",
+            "fieldname": "account",
+            "fieldtype": "Link",
+            "options": "Account",
+            "width": 260,
+            "align": "left",
+        },
+        {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data", "hidden": 1},
+        {"label": "Parent Account", "fieldname": "parent_account", "fieldtype": "Data", "hidden": 1},
+        {"label": "Account Type", "fieldname": "account_type", "fieldtype": "Data", "hidden": 1},
+        {"label": "Year Start", "fieldname": "year_start_date", "fieldtype": "Date", "hidden": 1},
+        {"label": "Year End", "fieldname": "year_end_date", "fieldtype": "Date", "hidden": 1},
+        {"label": "From Date", "fieldname": "from_date", "fieldtype": "Date", "hidden": 1},
+        {"label": "To Date", "fieldname": "to_date", "fieldtype": "Date", "hidden": 1},
+    ]
     for p in periods:
         cols.append({
             "label": p["label"],
@@ -161,7 +277,6 @@ def _build_columns(periods):
         "width": 130,
     })
     return cols
-
 
 def _blank_row(name, periods, currency):
     row = {"account": name, "currency": currency, "total": 0.0}
@@ -190,6 +305,7 @@ def _get_monthly_debit_credit(company, from_date, to_date, accounts):
             AND gle.is_cancelled = 0
             AND gle.posting_date BETWEEN %s AND %s
             AND gle.account IN ({placeholders})
+            AND gle.posting_date >= '2025-06-01'
         GROUP BY gle.account, period_start
     """
     params = [company, from_date, to_date] + list(accounts)
