@@ -6,6 +6,10 @@ from frappe.query_builder import Criterion
 from erpnext.accounts.utils import get_balance_on
 from frappe.utils.nestedset import get_descendants_of
 from erpnext.setup.utils import get_exchange_rate as get_conversion_rate
+from casino_navy.casino_navy.doctype.accountant_mapper.accountant_mapper import (
+    _load_sections_from_mapper,
+    _resolve_sections_leafs,
+)
 
 def get_exchange_rate(from_currency, to_currency, date=None, conversion_type="for_selling"):
     if from_currency == to_currency:
@@ -172,3 +176,27 @@ def move_luqapay_balance():
         content = f"Journal Entry: {jv.as_json()}\n\n{str(e)}\n\n{frappe.get_traceback()}"
         frappe.log_error("Luqapay Balance Transfer", content)
         
+
+@frappe.whitelist()
+def get_accounts_for_section(company: str, section_label: str, report_name: str = "Net Profit Line Summary"):
+    sections = _load_sections_from_mapper(report_name, company)
+    resolved = _resolve_sections_leafs(company, sections)
+
+    if section_label not in resolved:
+        frappe.throw(f"Section '{section_label}' not found in Accountant Mapper for {company}.")
+
+    leafs = list(resolved[section_label].get("leafs") or [])
+
+    if not leafs:
+        return {
+            "accounts": [],
+            "company": None,
+        }
+
+    first_acc = leafs[0]
+    acc_company = frappe.db.get_value("Account", first_acc, "company")
+
+    return {
+        "accounts": leafs,
+        "company": acc_company,
+    }

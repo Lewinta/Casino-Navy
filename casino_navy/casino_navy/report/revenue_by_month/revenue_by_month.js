@@ -5,22 +5,51 @@
 frappe.require("assets/erpnext/js/financial_statements.js", function () {
   frappe.query_reports["Revenue By Month"] = {
     onload(report) {
-      // set FY date range (optional, helps GL route defaults)
-      const company = frappe.query_report.get_filter_value("company");
-      const fy_name = frappe.query_report.get_filter_value("fiscal_year");
-      if (!fy_name) return;
+      const fy = frappe.query_report.get_filter_value("fiscal_year");
+      if (!fy) return;
 
-      frappe.model.with_doc("Fiscal Year", fy_name, function () {
-        const fy = frappe.model.get_doc("Fiscal Year", fy_name);
-        // nothing to set on filters for this report; rows carry dates
-        // (GL uses year_start_date/year_end_date/from_date/to_date from the row)
-      });
+      frappe.model.with_doc("Fiscal Year", fy);
     },
 
-    // 👇 This makes the Account column clickable + bold logic, etc.
-    formatter: erpnext.financial_statements.formatter,
+    formatter(value, row, column, data, default_formatter) {
+      value = default_formatter(value, row, column, data);
 
-    // If you later add parent_account to rows, tree view will indent nicely
+      if (column.fieldname === "account" && data && data.account) {
+        const account = encodeURIComponent(data.account);
+        const label = frappe.utils.escape_html(data.account_name || data.account);
+
+        value = `
+          <a href="#" 
+             onclick="frappe.query_reports['Revenue By Month'].open_gl('${account}'); 
+                      return false;">
+             ${label}
+          </a>`;
+      }
+
+      return value;
+    },
+
+    open_gl(account) {
+      account = decodeURIComponent(account);
+
+      const company = frappe.query_report.get_filter_value("company");
+      const fy = frappe.query_report.get_filter_value("fiscal_year");
+
+      frappe.db.get_value("Fiscal Year", fy, ["year_start_date", "year_end_date"])
+        .then(res => {
+          const fy_dates = res.message || {};
+
+          frappe.route_options = {
+            company,
+            account,
+            from_date: fy_dates.year_start_date,
+            to_date: fy_dates.year_end_date
+          };
+
+          frappe.set_route("query-report", "General Ledger");
+        });
+    },
+
     tree: false,
     name_field: "account",
     parent_field: "parent_account",

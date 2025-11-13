@@ -1,5 +1,5 @@
 {
- "add_total_row": 1,
+ "add_total_row": 0,
  "columns": [],
  "creation": "2025-10-01 13:49:45.220338",
  "disable_prepared_report": 1,
@@ -9,7 +9,7 @@
  "filters": [],
  "idx": 0,
  "is_standard": "Yes",
- "modified": "2025-10-01 13:49:45.220338",
+ "modified": "2025-11-12 14:32:45.253355",
  "modified_by": "Administrator",
  "module": "Casino Navy",
  "name": "Profitability View",

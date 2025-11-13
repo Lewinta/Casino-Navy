@@ -50,13 +50,13 @@ def execute(filters=None):
 		if row_total != 0:
 			meta = _get_account_meta(account)
 			row = {
-				"account": account,                           # 👈 clickable (group account)
+				"account": account,                           
 				"account_name": meta["account_name"] or account,
 				"parent_account": meta["parent_account"] or "",
 				"account_type": meta["account_type"] or "",
-				"year_start_date": fy_start,                  # used by formatter->GL
+				"year_start_date": fy_start,                  
 				"year_end_date": fy_end,
-				"from_date": fy_start,                        # mirror for compatibility
+				"from_date": fy_start,                        
 				"to_date": fy_end,
 				"currency": currency,
 			}

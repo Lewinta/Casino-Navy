@@ -298,7 +298,7 @@ def _get_monthly_movements(company: str, from_date: date, to_date: date, account
           AND gle.is_cancelled = 0
           AND gle.posting_date BETWEEN %s AND %s
           AND gle.account IN ({placeholders})
-          AND gle.posting_date >= '2025-06-01'
+          
         GROUP BY gle.account, period_start
     """
     params = [company, from_date, to_date] + accounts
